@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Python.Dockerfile
-    command: python check_blocked.py -d
+    command: python check_blocked.py
     cpus: '0.5'
     mem_limit: '1gb'
     shm_size: '1gb'

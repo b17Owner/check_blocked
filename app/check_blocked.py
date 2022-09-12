@@ -22,9 +22,8 @@ ToDo:
 + Добавить исключения в smtp
 + Добавить default, если в конфиге не указано значение
 + Добавить argparse и для опредение FILENAME через аргументы
-- Сделать логгирование приложения и детальный отчёт в разные файлы
-- Залить на гит
-- Переделать в ООП для ухода от глобальных переменных
++ Залить на гит
++ Сделать логгирование приложения и детальный отчёт в разные файлы (решается перенаправлением stdout в файл)
 '''
 
 import requests
@@ -35,6 +34,7 @@ import time
 import argparse
 from datetime import datetime
 from dotenv import dotenv_values
+import logging
 
 # # Модуль для ограничения использования CPU
 # import resource
@@ -69,6 +69,7 @@ def check_config(config, args):
         'FILENAME': 'url.list',
         'REPORT_FILE': '',
         'BLOCK_DOMAIN': 'zapret.local',
+        'WORKERS': '20',
         'FTP_ENABLE': '0',
         'FTP_SERVER': '127.0.0.1',
         'FTP_PORT': '21',
@@ -81,7 +82,7 @@ def check_config(config, args):
         'SMTP_LOGIN': '',
         'SMTP_PASSWORD': '',
         'SMTP_ATTACH_REPORT': '0',
-        'SMTP_RECIPIENTS': ''
+        'SMTP_RECIPIENTS': '',
     }
 
     # Список обязательных ключей .env
@@ -114,6 +115,7 @@ def check_config(config, args):
 
     # Форматируем значения чисел из str в int
     config['DEBUG_LIMIT'] = int(config['DEBUG_LIMIT'])
+    config['WORKERS'] = int(config['WORKERS'])
 
     # Форматируем название файла с отчетом
     if config['REPORT_FILE'] == '':
@@ -233,20 +235,20 @@ def send_report(msg_text, attachment):
 #       'comment': str,
 #       'check_count': int
 #   }
-def report_item(result, file):
-    file.write(f'\
+def report_item(result):
+    logger.info(f'\
 {result["id"]}|\
 {result["url"]}|\
 {result["status"]}|\
 {result["comment"]}|\
 {result["check_count"]}|\
-{result["datetime_check"]}\n')
+{result["datetime_check"]}')
 
 
 #
 #   Функция проверки эндпоинта, со счетчиком проверок
 #
-def check_endpoint(id, url, file, check_count=1):
+def check_endpoint(id, url, check_count=1):
     # Подключаем глобальную переменную для подсчета статистики
     global statistics
 
@@ -265,7 +267,6 @@ def check_endpoint(id, url, file, check_count=1):
     # Инкрементируем счетчик всех записей, если первая проверка
     if check_count == 1:
         statistics['all'] += 1
-
     try:
         response = requests.get(url, timeout=20)
 
@@ -281,7 +282,7 @@ def check_endpoint(id, url, file, check_count=1):
                 'check_count': check_count,
                 'datetime_check': datetime.now()
             }
-            report_item(result, file)
+            report_item(result)
         else:
             statistics['not_blocked'] += 1
             result = {
@@ -292,13 +293,13 @@ def check_endpoint(id, url, file, check_count=1):
                 'check_count': check_count,
                 'datetime_check': datetime.now()
             }
-            report_item(result, file)
+            report_item(result)
     except requests.exceptions.ConnectionError as err:
         # Если кол-во проверок меньше 3, то провести повторную
         # проверку
         if check_count < 3:
             time.sleep(1)
-            check_endpoint(id, url, file, check_count + 1)
+            check_endpoint(id, url, check_count + 1)
 
         # Если кол-во проверок >3, записать результат
         if check_count == 3:
@@ -311,7 +312,7 @@ def check_endpoint(id, url, file, check_count=1):
                 'check_count': check_count,
                 'datetime_check': datetime.now()
             }
-            report_item(result, file)
+            report_item(result)
 
     except requests.exceptions.ReadTimeout as err:
         statistics['error_read'] += 1
@@ -323,7 +324,7 @@ def check_endpoint(id, url, file, check_count=1):
             'check_count': check_count,
             'datetime_check': datetime.now()
         }
-        report_item(result, file)
+        report_item(result)
     except requests.exceptions.ChunkedEncodingError as err:
         statistics['error_peer'] += 1
         result = {
@@ -334,7 +335,7 @@ def check_endpoint(id, url, file, check_count=1):
             'check_count': check_count,
             'datetime_check': datetime.now()
         }
-        report_item(result, file)
+        report_item(result)
     except requests.exceptions.InvalidURL as err:
         statistics['error_url'] += 1
         result = {
@@ -345,7 +346,7 @@ def check_endpoint(id, url, file, check_count=1):
             'check_count': check_count,
             'datetime_check': datetime.now()
         }
-        report_item(result, file)
+        report_item(result)
     except requests.exceptions.TooManyRedirects as err:
         statistics['error_redirects'] += 1
         result = {
@@ -356,45 +357,61 @@ def check_endpoint(id, url, file, check_count=1):
             'check_count': check_count,
             'datetime_check': datetime.now()
         }
-        report_item(result, file)
+        report_item(result)
 
 
 #
 #    Функция инициализации и запуска потоков
 #    для проверки url
 #
-def init_threads(urls, fd_out):
+def init_threads(urls):
     log_stdout(f'Инициализация потоков')
+    threads = []
+    i = 0  # счетчик процессов
 
-    # Инициализация потоков
-    threads = [
-        threading.Thread(
-            target=check_endpoint,
-            args=(index, row, fd_out, )
-        )
-        for index, row in enumerate(urls)
-        if (config['DEBUG'] == '1' and index <= config['DEBUG_LIMIT'])
-        or (config['DEBUG'] == '0')
-    ]
-
-    log_stdout(f'Запуск потоков на выполнение')
-    # Запускаем потоки на выполнение
-    for index, thread in enumerate(threads):
+    for index, url in enumerate(urls):
+        # Если включен дебаг и сработал лимит, то запускаем потоки
+        # на выполнение
         if config['DEBUG'] == '1' and index == config['DEBUG_LIMIT']:
             break
-        # Каждые 10 записей ожидание 3 сек
-        if index % 10 == 0:
-            time.sleep(0.5)
+
+        if i <= config['WORKERS']:
+            i += 1  # инкрементируем счетчик активных процессов
+
+            # Инициализация потоков
+            threads.append(
+                threading.Thread(
+                    target=check_endpoint,
+                    args=(index, url, )
+                )
+            )
+        # Если число процессов больше WORKERS или конец списка,
+        # то запускаем на выполнение
+        if i == config['WORKERS']:
+            log_stdout('Запуск потоков')
+            # Запускаем потоки на выполнение
+            for thread in threads:
+                thread.start()
+
+            log_stdout('Ожидание завершения')
+            # Ожидаем завершения выполения потоков
+            for thread in threads:
+                thread.join()
+
+            # очищаем переменные после выполнения потоков
+            i = 0
+            threads = []
+
+    # Запускаем оставшиеся потоки на выполнение
+    for thread in threads:
         thread.start()
 
-    log_stdout(f'Ожидание завершения потоков')
-    # Ожидание завершения всех потоков
-    for index, thread in enumerate(threads):
-        if config['DEBUG'] == '1' and index == config['DEBUG_LIMIT']:
-            break
+    log_stdout('Завершение потоков')
+    # Ожидаем завершения выполения потоков
+    for thread in threads:
         thread.join()
 
-    return True
+    return
 
 
 #
@@ -435,6 +452,13 @@ else:
 # Проверка и форматирование config
 check_config(config, args)
 
+logpath = config['REPORT_FILE']
+logger = logging.getLogger('log')
+logger.setLevel(logging.INFO)
+ch = logging.FileHandler(logpath)
+ch.setFormatter(logging.Formatter('%(message)s'))
+logger.addHandler(ch)
+
 # Статистика по проверке
 statistics = {
     'all': 0,
@@ -471,20 +495,23 @@ def main():
 {config["FILENAME"]}')
         sys.exit()
 
-    # Открываем файл для записи отчета
-    try:
-        fd_out = open(config['REPORT_FILE'], 'w')
-        fd_out.write(f'id|url|status|comment|check_count|datetime_check\n')
-    except OSError:
-        log_stdout(f'Невозможно открыть или прочитать файл: \
-{config["REPORT_FILE"]}')
-        sys.exit()
+    # Пишем в лог проверок первую строку
+    log_stdout(f'Инициализация отчета')
+    logger.info(f'id|url|status|comment|check_count|datetime_check')
+
+#     # Открываем файл для записи отчета
+#     try:
+#         fd_out = open(config['REPORT_FILE'], 'w')
+#     except OSError:
+#         log_stdout(f'Невозможно открыть или прочитать файл: \
+# {config["REPORT_FILE"]}')
+#         sys.exit()
 
     # Инициализация потоков
-    init_threads(fd_in, fd_out)
+    init_threads(fd_in)
 
-    # Закрываем файл с отчетом
-    fd_out.close()
+    # # Закрываем файл с отчетом
+    # fd_out.close()
     log_stdout(f'Сохранение отчета в файл {config["REPORT_FILE"]}')
 
     # Определяем время окончания проверки
