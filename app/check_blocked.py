@@ -268,7 +268,7 @@ def check_endpoint(id, url, check_count=1):
     if check_count == 1:
         statistics['all'] += 1
     try:
-        response = requests.get(url, timeout=20)
+        response = requests.head(url, timeout=20)
 
         # Если url в ответе содержит blocked.mts.ru, значит сработала
         # блокировка MTS
@@ -388,7 +388,7 @@ def init_threads(urls):
         # Если число процессов больше WORKERS или конец списка,
         # то запускаем на выполнение
         if i == config['WORKERS']:
-            log_stdout('Запуск потоков')
+            log_stdout(f'Запуск потоков {index}')
             # Запускаем потоки на выполнение
             for thread in threads:
                 thread.start()
