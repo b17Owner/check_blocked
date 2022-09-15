@@ -270,6 +270,9 @@ def check_endpoint(id, url, check_count=1):
     try:
         response = requests.head(url, timeout=20)
 
+        if response.status_code == 302:
+            response.url = response.next.url
+
         # Если url в ответе содержит blocked.mts.ru, значит сработала
         # блокировка MTS
         if response.url.split("/")[2] == config['BLOCK_DOMAIN']:
