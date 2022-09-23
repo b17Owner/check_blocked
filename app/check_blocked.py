@@ -30,6 +30,7 @@ import requests
 import os
 import sys
 import threading
+# import multiprocessing
 import time
 import argparse
 from datetime import datetime
@@ -48,6 +49,15 @@ from email import encoders
 
 # модули для FTP
 import ftplib
+
+# # debug http
+# import http.client
+# log = logging.getLogger('urllib3')
+# log.setLevel(logging.DEBUG)
+# stream = logging.StreamHandler()
+# stream.setLevel(logging.DEBUG)
+# log.addHandler(stream)
+# http.client.HTTPConnection.debuglevel = 1
 
 
 #
@@ -178,6 +188,7 @@ def ftp_upload():
 #   Функция отправки отчета на почту
 #
 def send_report(msg_text, attachment):
+    print(f'{statistics}')
     log_stdout(f'Отправка отчета на {config["SMTP_RECIPIENTS"]}')
     # Собираем письмо из частей
     msg = MIMEMultipart()
@@ -261,18 +272,30 @@ def check_endpoint(id, url, check_count=1):
         url = url[2:]
 
     # Если в url отсутствует часть http
-    if url[0:5].lower() != 'http:':
+    if url[0:5].lower() != 'http:' and url[0:6].lower() != 'https:':
         url = 'http://' + url
 
     # Инкрементируем счетчик всех записей, если первая проверка
     if check_count == 1:
         statistics['all'] += 1
     try:
-        response = requests.head(url, timeout=20)
+        response = requests.head(url, timeout=20, verify=False)
 
-        if response.status_code == 302:
+        if response.status_code == 302 or response.status_code == 301:
             response.url = response.next.url
 
+        if response.url[0:6].lower() == 'https:':
+            statistics['blocked'] += 1
+            result = {
+                'id': id,
+                'url': url,
+                'status': 'ЗАБЛОКИРОВАНО',
+                'comment': '',
+                'check_count': check_count,
+                'datetime_check': datetime.now()
+            }
+            report_item(result)
+            return
         # Если url в ответе содержит blocked.mts.ru, значит сработала
         # блокировка MTS
         if response.url.split("/")[2] == config['BLOCK_DOMAIN']:
@@ -510,7 +533,7 @@ def main():
 # {config["REPORT_FILE"]}')
 #         sys.exit()
 
-    # Инициализация потоков
+    # # Инициализация потоков
     init_threads(fd_in)
 
     # # Закрываем файл с отчетом
