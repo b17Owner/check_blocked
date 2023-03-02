@@ -23,7 +23,8 @@ ToDo:
 + Добавить default, если в конфиге не указано значение
 + Добавить argparse и для опредение FILENAME через аргументы
 + Залить на гит
-+ Сделать логгирование приложения и детальный отчёт в разные файлы (решается перенаправлением stdout в файл)
++ Сделать логгирование приложения и детальный отчёт в разные файлы
+    (решается перенаправлением stdout в файл)
 '''
 
 import requests
@@ -122,6 +123,8 @@ def check_config(config, args):
 
     if args.response:
         config['BLOCK_DOMAIN'] = args.response
+
+    config['BLOCK_DOMAIN'] = config['BLOCK_DOMAIN'].split(' ')
 
     # Форматируем значения чисел из str в int
     config['DEBUG_LIMIT'] = int(config['DEBUG_LIMIT'])
@@ -298,7 +301,8 @@ def check_endpoint(id, url, check_count=1):
             return
         # Если url в ответе содержит blocked.mts.ru, значит сработала
         # блокировка MTS
-        if response.url.split("/")[2] == config['BLOCK_DOMAIN']:
+        if (response.url.split("/")[2] in config['BLOCK_DOMAIN']
+                or response.url.split("/")[3] in config['BLOCK_DOMAIN']):
             statistics['blocked'] += 1
             result = {
                 'id': id,
