@@ -1,7 +1,9 @@
 version: "3.8"
 
 services:
-  web:
+  checker:
+    env_file:
+      - app/.env
     build:
       context: .
       dockerfile: Python.Dockerfile

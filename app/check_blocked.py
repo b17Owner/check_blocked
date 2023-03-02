@@ -526,7 +526,7 @@ def main():
         sys.exit()
 
     # Пишем в лог проверок первую строку
-    log_stdout(f'Инициализация отчета')
+    log_stdout(f'Инициализация отчета {config["REPORT_FILE"]}')
     logger.info(f'id|url|status|comment|check_count|datetime_check')
 
 #     # Открываем файл для записи отчета

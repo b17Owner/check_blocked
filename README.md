@@ -17,8 +17,11 @@
 Переименуйте файл example.env в .env, заполните нужные параметры
 
     docker-compose build && docker-compose up -d
-    
-  
+
+либо, если нужно передать переменную окружения:
+
+    docker-compose build && docker-compose run checker python check_blocked.py -f dmns.list
+
 ## Запуск локально
 
 ### Подготовка к запуску
