@@ -132,7 +132,7 @@ def check_config(config, args):
 
     # Форматируем название файла с отчетом
     if config['REPORT_FILE'] == '':
-        config['REPORT_FILE'] = ('reports/'
+        config['REPORT_FILE'] = ('./reports/'
                                  + config['FILENAME']
                                  + '_report_'
                                  + time.strftime('%d%m%Y%H%M')
